@@ -81,7 +81,13 @@ function file_get_html($url, $use_include_path = false, $context=null, $offset =
     }
     // The second parameter can force the selectors to all be lowercase.
     $dom->load($contents, $lowercase, $stripRN);
-    return $dom;
+
+    $result = new stdClass;
+
+    $result->dom = $dom;
+    $result->headers = $http_response_header;
+
+    return  $result;
 }
 
 // get html dom from string

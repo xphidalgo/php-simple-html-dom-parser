@@ -67,7 +67,7 @@ define('MAX_FILE_SIZE', 6000000);
 // -----------------------------------------------------------------------------
 // get html dom from file
 // $maxlen is defined in the code as PHP_STREAM_COPY_ALL which is defined as -1.
-function file_get_html($url, $use_include_path = false, $context=null, $offset = -1, $maxLen=-1, $lowercase = true, $forceTagsClosed=true, $target_charset = DEFAULT_TARGET_CHARSET, $stripRN=true, $defaultBRText=DEFAULT_BR_TEXT, $defaultSpanText=DEFAULT_SPAN_TEXT)
+function file_get_html($context=null, $offset = -1, $maxLen=-1, $lowercase = true, $forceTagsClosed=true, $target_charset = DEFAULT_TARGET_CHARSET, $stripRN=true, $defaultBRText=DEFAULT_BR_TEXT, $defaultSpanText=DEFAULT_SPAN_TEXT)
 {
     // We DO force the tags to be terminated.
     $dom = new simple_html_dom(null, $lowercase, $forceTagsClosed, $target_charset, $stripRN, $defaultBRText, $defaultSpanText);
@@ -80,56 +80,48 @@ function file_get_html($url, $use_include_path = false, $context=null, $offset =
         )
     );
 
-    $caughtException = null;
-    try {
-        $contents = file_get_contents($url, $use_include_path, $context);
 
-        foreach($http_response_header as $c => $h)
-        {
-            if(stristr($h, 'content-encoding') and stristr($h, 'deflate'))
-            {
-                if($contents != null && $contents != "")
-                {   
-                    try {
-                        $tmpContents = @gzuncompress($contents);    
-                        if($tmpContents != null)
-                        {
-                            $contents = $tmpContents;
-                        }
-                    } catch (Exception $e) {
-                        
-                    }
-                    
-                }
-            }
-        }
-        
-    }
-    catch (Exception $e) {
-        $caughtException = $e;
-    }
+    $headers = [];
 
-    restore_error_handler();
+    // this function is called by curl for each header received
+    curl_setopt($context, CURLOPT_HEADERFUNCTION,
+      function($curl, $header) use (&$headers)
+      {
+        $len = strlen($header);
+        $header = explode(':', $header, 2);
+        if (count($header) < 2) // ignore invalid headers
+          return $len;
 
-    if($caughtException != null)
+        $name = strtolower(trim($header[0]));
+        if (!array_key_exists($name, $headers))
+          $headers[$name] = [trim($header[1])];
+        else
+          $headers[$name][] = trim($header[1]);
+
+        return $len;
+      }
+    );
+
+    $contents = curl_exec($context);
+
+    curl_close($context);
+
+    if (!empty($contents))
     {
-        throw $caughtException;
+        $dom->load($contents, $lowercase, $stripRN);
     }
-    // Paperg - use our own mechanism for getting the contents as we want to control the timeout.
-    //$contents = retrieve_url_contents($url);
-    if (empty($contents) || strlen($contents) > MAX_FILE_SIZE)
+    else
     {
-        return false;
+        $dom = null;
     }
-    // The second parameter can force the selectors to all be lowercase.
-    $dom->load($contents, $lowercase, $stripRN);
 
     $result = new stdClass;
 
     $result->dom = $dom;
-    $result->headers = $http_response_header;
+    $result->headers = $headers;
 
     return  $result;
+    
 }
 
 // get html dom from string

@@ -121,7 +121,7 @@ function file_get_html($context=null, $isJson = false, $maxLen=-1, $lowercase = 
     }
     else
     {
-        $json = json_encode($contents);
+        $json = json_decode($contents);
     }
 
     $result = new stdClass;

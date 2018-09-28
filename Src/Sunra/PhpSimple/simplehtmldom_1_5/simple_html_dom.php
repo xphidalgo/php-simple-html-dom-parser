@@ -72,14 +72,14 @@ function file_get_html($context=null, $isJson = false, $maxLen=-1, $lowercase = 
     // We DO force the tags to be terminated.
     $dom = new simple_html_dom(null, $lowercase, $forceTagsClosed, $target_charset, $stripRN, $defaultBRText, $defaultSpanText);
     // For sourceforge users: uncomment the next line and comment the retreive_url_contents line 2 lines down if it is not already done.
-
+/*
     set_error_handler(
         create_function(
             '$severity, $message, $file, $line',
             'throw new ErrorException($message, $severity, $severity, $file, $line);'
         )
     );
-
+*/
 
     $headers = [];
 

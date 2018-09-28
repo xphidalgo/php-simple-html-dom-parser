@@ -83,27 +83,43 @@ function file_get_html($context=null, $isJson = false, $maxLen=-1, $lowercase = 
 
     $headers = [];
 
+    $contents = "";
+
     // this function is called by curl for each header received
-    curl_setopt($context, CURLOPT_HEADERFUNCTION,
-      function($curl, $header) use (&$headers)
-      {
-        $len = strlen($header);
-        $header = explode(':', $header, 2);
-        if (count($header) < 2) // ignore invalid headers
-          return $len;
+    $numberOfTrys = 0;
+    while (empty($contents)) {
+        if($numberOfTrys > 0)
+        {
+            sleep(30);
+        }
+        curl_setopt($context, CURLOPT_HEADERFUNCTION,
+          function($curl, $header) use (&$headers)
+          {
+            $len = strlen($header);
+            $header = explode(':', $header, 2);
+            if (count($header) < 2) // ignore invalid headers
+              return $len;
 
-        $name = strtolower(trim($header[0]));
-        if (!array_key_exists($name, $headers))
-          $headers[$name] = [trim($header[1])];
-        else
-          $headers[$name][] = trim($header[1]);
+            $name = strtolower(trim($header[0]));
+            if (!array_key_exists($name, $headers))
+              $headers[$name] = [trim($header[1])];
+            else
+              $headers[$name][] = trim($header[1]);
 
-        return $len;
-      }
-    );
+            return $len;
+          }
+        );
 
-    $contents = curl_exec($context);
+        $contents = curl_exec($context);
+        
+        $numberOfTrys++;
 
+        if($numberOfTrys > 3)
+        {
+            break;
+        }
+    }
+    
     curl_close($context);
 
     $json = null;

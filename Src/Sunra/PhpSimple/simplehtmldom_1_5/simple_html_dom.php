@@ -65,33 +65,72 @@ define('HDOM_INFO_ENDSPACE',7);
 define('DEFAULT_TARGET_CHARSET', 'UTF-8');
 define('DEFAULT_BR_TEXT', "\r\n");
 define('DEFAULT_SPAN_TEXT', " ");
-define('MAX_FILE_SIZE', 600000);
+if (!defined('MAX_FILE_SIZE'))
+{
+    define('MAX_FILE_SIZE', 600000);
+}
 // helper functions
 // -----------------------------------------------------------------------------
 // get html dom from file
-// $maxlen is defined in the code as PHP_STREAM_COPY_ALL which is defined as -1.
-function file_get_html($url, $use_include_path = false, $context=null, $offset = -1, $maxLen=-1, $lowercase = true, $forceTagsClosed=true, $target_charset = DEFAULT_TARGET_CHARSET, $stripRN=true, $defaultBRText=DEFAULT_BR_TEXT, $defaultSpanText=DEFAULT_SPAN_TEXT)
+function file_get_html($context = null, $lowercase = true, $forceTagsClosed=true, $target_charset = DEFAULT_TARGET_CHARSET, $stripRN=true, $defaultBRText=DEFAULT_BR_TEXT, $defaultSpanText=DEFAULT_SPAN_TEXT)
 {
     // We DO force the tags to be terminated.
     $dom = new simple_html_dom(null, $lowercase, $forceTagsClosed, $target_charset, $stripRN, $defaultBRText, $defaultSpanText);
-    // For sourceforge users: uncomment the next line and comment the retreive_url_contents line 2 lines down if it is not already done.
-    $contents = file_get_contents($url, $use_include_path, $context, $offset);
-    // Paperg - use our own mechanism for getting the contents as we want to control the timeout.
-    //$contents = retrieve_url_contents($url);
-    if (empty($contents) || strlen($contents) > MAX_FILE_SIZE)
+
+    $headers = [];
+    
+    curl_setopt($context, CURLOPT_HEADERFUNCTION, function($curl, $header) use (&$headers) {
+        $len = strlen($header);
+
+        $header = explode(':', $header, 2);
+
+        if (count($header) < 2)
+        {
+            return $len;
+        }
+
+        $name = strtolower(trim($header[0]));
+
+        if (!array_key_exists($name, $headers))
+        {
+            $headers[$name] = [trim($header[1])];
+        }
+        else
+        {
+            $headers[$name][] = trim($header[1]);
+        }
+
+        return $len;
+    });
+
+    $contents = curl_exec($context);
+
+    $info = curl_getinfo($context);
+
+    curl_close($context);
+
+    if (!empty($contents))
     {
-        return false;
+        $dom->load($contents, $lowercase, $stripRN);
     }
-    // The second parameter can force the selectors to all be lowercase.
-    $dom->load($contents, $lowercase, $stripRN);
-    return $dom;
+    else
+    {
+        $dom = null;
+    }
+
+    $result = new \stdClass;
+    $result->dom = $dom;
+    $result->headers = $headers;
+    $result->info = $info;
+
+    return  $result;
 }
 
 // get html dom from string
 function str_get_html($str, $lowercase=true, $forceTagsClosed=true, $target_charset = DEFAULT_TARGET_CHARSET, $stripRN=true, $defaultBRText=DEFAULT_BR_TEXT, $defaultSpanText=DEFAULT_SPAN_TEXT)
 {
     $dom = new simple_html_dom(null, $lowercase, $forceTagsClosed, $target_charset, $stripRN, $defaultBRText, $defaultSpanText);
-    if (empty($str) || strlen($str) > MAX_FILE_SIZE)
+    if (empty($str))
     {
         $dom->clear();
         return false;
@@ -119,6 +158,7 @@ class simple_html_dom_node
     public $nodetype = HDOM_TYPE_TEXT;
     public $tag = 'text';
     public $attr = array();
+    /** @var simple_html_dom_node[] $children */
     public $children = array();
     public $nodes = array();
     public $parent = null;
@@ -127,7 +167,7 @@ class simple_html_dom_node
     public $tag_start = 0;
     private $dom = null;
 
-    function __construct($dom)
+    function __construct(simple_html_dom $dom)
     {
         $this->dom = $dom;
         $dom->nodes[] = $this;
@@ -500,8 +540,14 @@ class simple_html_dom_node
         return $ret . $this->_[HDOM_INFO_ENDSPACE] . '>';
     }
 
-    // find elements by css selector
-    //PaperG - added ability for find to lowercase the value of the selector.
+    /**
+     * find elements by css selector
+     * PaperG - added ability for find to lowercase the value of the selector.
+     * @param string   $selector
+     * @param int|null $idx
+     * @param bool     $lowercase
+     * @return simple_html_dom_node[]|simple_html_dom_node|null
+     */
     function find($selector, $idx=null, $lowercase=false)
     {
         $selectors = $this->parse_selector($selector);
@@ -683,7 +729,7 @@ class simple_html_dom_node
 // This implies that an html attribute specifier may start with an @ sign that is NOT captured by the expression.
 // farther study is required to determine of this should be documented or removed.
 //        $pattern = "/([\w-:\*]*)(?:\#([\w-]+)|\.([\w-]+))?(?:\[@?(!?[\w-]+)(?:([!*^$]?=)[\"']?(.*?)[\"']?)?\])?([\/, ]+)/is";
-        $pattern = "/([\w-:\*]*)(?:\#([\w-]+)|\.([\w-]+))?(?:\[@?(!?[\w-:]+)(?:([!*^$]?=)[\"']?(.*?)[\"']?)?\])?([\/, ]+)/is";
+        $pattern = "/([\w\-:\*]*)(?:\#([\w-]+)|\.([\w-]+))?(?:\[@?(!?[\w\-:]+)(?:([!*^$]?=)[\"']?(.*?)[\"']?)?\])?([\/, ]+)/is";
         preg_match_all($pattern, trim($selector_string).' ', $matches, PREG_SET_ORDER);
         if (is_object($debugObject)) {$debugObject->debugLog(2, "Matches Array: ", $matches);}
 
@@ -973,6 +1019,7 @@ class simple_html_dom_node
  */
 class simple_html_dom
 {
+    /** @var simple_html_dom_node $root */
     public $root = null;
     public $nodes = array();
     public $callback = null;
@@ -1364,7 +1411,7 @@ class simple_html_dom
             return true;
         }
 
-        if (!preg_match("/^[\w-:]+$/", $tag)) {
+        if (!preg_match("/^[\w\-:]+$/", $tag)) {
             $node->_[HDOM_INFO_TEXT] = '<' . $tag . $this->copy_until('<>');
             if ($this->char==='<') {
                 $this->link_nodes($node, false);
@@ -1671,7 +1718,7 @@ class simple_html_dom
         }
         return $text;
     }
-
+    
     // Sometimes we NEED one of the noise elements.
     function search_noise($text)
     {
@@ -1686,6 +1733,7 @@ class simple_html_dom
             }
         }
     }
+	
     function __toString()
     {
         return $this->root->innertext();
@@ -1720,5 +1768,3 @@ class simple_html_dom
     function getElementsByTagName($name, $idx=-1) {return $this->find($name, $idx);}
     function loadFile() {$args = func_get_args();$this->load_file($args);}
 }
-
-?>
